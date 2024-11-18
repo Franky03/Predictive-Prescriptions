@@ -1,9 +1,13 @@
+module ShipModule
+
 using JuMP
 using GLPK
 using DelimitedFiles
 using LinearAlgebra
 
-struct Shipment 
+export Shipment
+
+mutable struct Shipment 
     demands::Vector{Int} # demands for each location
     dy::Int # number of locations
     dz::Int # number of warehouses
@@ -15,9 +19,9 @@ struct Shipment
     weights::Vector{Float64} # adaptive weights for the objective function
 end
 
-function Ship(
+function Shipment(
     demands::Vector{Float64}, 
-    dy::Int; 
+    dy::Int,
     dz::Int = 4, 
     weights::Union{Nothing, Vector{Float64}} = nothing,
     verbose::Bool = false
@@ -180,4 +184,6 @@ function risk_functional(shipment::Shipment, z, demand, weights)
     )
 
     return expected_costs
+end
+
 end

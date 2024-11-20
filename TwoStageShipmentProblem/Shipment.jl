@@ -5,10 +5,10 @@ using GLPK
 using DelimitedFiles
 using LinearAlgebra
 
-export Shipment
+export Shipment, setup_model
 
 mutable struct Shipment 
-    demands::Vector{Int} # demands for each location
+    demands::Vector{Float64} # demands for each location
     dy::Int # number of locations
     dz::Int # number of warehouses
     ship_cost::Float64 # cost of shipping (per unit)
@@ -68,14 +68,14 @@ function setup_model(shipment::Shipment)
     model = shipment.model
     dz, dy = shipment.dz, shipment.dy
     demands = shipment.demands
-    ship_cost, prod_cost, spot_cost = shipment.ship_cost, shipment.prod_cost, shipment.spot_cost
+    ship_cost, prod_cost, spot_cost = shipment.ship_cost, shipment.prod_cost, shipment.last_minute_cost
     distance_matrix = shipment.distance_matrix
     weights = shipment.weights
 
     # variables
 
     # quantity shipped from warehouse i to location j
-    @variable(model, s[1:dz, 1:dy, 1:length(demands)] >= 0, basename = "shipment") 
+    @variable(model, s[1:dz, 1:dy, 1:length(demands)] >= 0) 
     # production in the last hour in each warehouse i
     @variable(model, t[1:dz, 1:length(demands)] >= 0) 
     # quantity produced in advance in each warehouse i
@@ -85,13 +85,13 @@ function setup_model(shipment::Shipment)
     
     for sample in 1:length(demands)
         # satisfy demand for each location j
-        for i in 1:dy
+        for j in 1:dy
             @constraint(model, sum(s[i, j, sample] for i in 1:dz) >= demands[sample])
         end
 
         # flow conservation: production and spot orders cover shipments
-        for j in 1:dz
-            @constraint(model, sum(s[i, j, sample] for j in 1:dy) <= z[j] + t[j, sample])
+        for i in 1:dz
+            @constraint(model, sum(s[i, j, sample] for j in 1:dy) <= z[i] + t[i, sample])
         end
     end
 

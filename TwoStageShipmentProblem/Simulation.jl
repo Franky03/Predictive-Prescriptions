@@ -7,7 +7,7 @@ using Distributions
 include("Shipment.jl")
 using .ShipModule
 
-export Simulator
+export Simulator, get_shipment_model
 
 mutable struct Simulator
     size::Int
@@ -48,6 +48,12 @@ end
 
 function sample_shipment_innovations(sim::Simulator)
     return rand(MvNormal(zeros(sim.d_x), sim.uCovar))
+end
+
+function get_shipment_model(sim::Simulator, weights::Vector{Float64})
+    ship = ShipModule.Shipment(sim.Y_train[1, :], sim.d_y, 4, weights, sim.verbose)
+    ship = ShipModule.setup_model(ship)
+    return ship
 end
 
 function shipment_covariate(u::Vector{Float64}, 

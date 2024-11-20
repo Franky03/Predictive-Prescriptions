@@ -6,13 +6,14 @@ include("Simulation.jl")
 
 using LinearAlgebra
 using ScikitLearn
-using ScikitLearn.CrossValidation: train_test_split
 using ScikitLearn: fit!
-using ScikitLearn.GridSearch: RandomizedSearchCV
 using Random
 using DecisionTree
+using PyCall
 
 @sk_import ensemble: RandomForestRegressor
+
+const RandomizedSearchCV = ScikitLearn.GridSearch.RandomizedSearchCV
 
 const Simulator = SimModule.Simulator
 const Shipment = ShipModule.Shipment
@@ -29,15 +30,15 @@ const min_max_transform! = MLUtils.min_max_transform!
 export RfPrescriptor, solve_cso_problem, solve_saa_problem
 
 mutable struct RfPrescriptor
-    randomForest::Any
+    randomForest::PyObject
     nbTrees::Int
     nbSamples::Int
     Y_train::Matrix{Float64}
-    X_train_scaled::Matrix{Float64}
-    trainingLeaves::Matrix{Int}
-    nbSamplesInLeaf::Dict{Int, Dict{Int, Int}}
-    isSampleInTreeLeaf::Dict{Int, Dict{Int, Vector{Int}}}
-    scaler::Any
+    x_train_scaled::Union{Matrix{Float64}, Nothing}
+    trainingLeaves::Union{Matrix{Int}, Nothing}
+    nbSamplesInLeaf::Union{Dict{Int, Dict{Int, Int}}, Nothing}
+    isSampleInTreeLeaf::Union{Dict{Int, Dict{Int, Vector{Int}}}, Nothing}
+    scaler::Union{Any, Nothing}
     cvarOrder::Int
     W_MAX::Float64
 end
@@ -46,7 +47,7 @@ function RfPrescriptor(
     X_train, Y_train, nbTrees=100, cvarOrder=2, random_state=nothing, isScaled=false
 )   
     if isnothing(random_state)
-        random_state = Random.GLOBAL_RNG.seed
+        random_state = MersenneTwister(12)
     end
     prescriptor = RfPrescriptor(
         nothing, nbTrees, size(X_train, 1), Y_train, nothing, nothing, nothing, nothing, nothing, cvarOrder, 0.0
@@ -54,7 +55,7 @@ function RfPrescriptor(
 
     if !isScaled
         scaler = MinMaxScaler()
-        X_train_scaled = fit_transform(scaler, X_train)
+        X_train_scaled = min_max_fit_transform!(scaler, X_train)
         prescriptor.scaler = scaler
     else
         X_train_scaled = X_train
@@ -63,25 +64,33 @@ function RfPrescriptor(
 
     prescriptor.x_train_scaled = X_train_scaled
 
-    param_dist = Dict("n_trees"=>[50 , 100, 200, 300],
-                  "max_depth"=> [3, 5, 6 ,8 , 9 ,10])
+    param_dist = Dict(
+        "n_estimators" => 100:200:1000,
+        "max_depth" => 1:10,
+        "min_samples_split" => 2:10
+    )
 
     rf = RandomForestRegressor()
     model = RandomizedSearchCV(rf, param_dist, n_iter=10, cv=5, random_state=random_state)
 
-    nbTrees = model.best_params_["n_trees"]
+    search = fit!(model, X_train_scaled, Y_train)
+
+    nbTrees = search.best_params_[:n_estimators]
     prescriptor.nbTrees = nbTrees
 
-    fit!(model, X_train_scaled, Y_train)
-
-    prescriptor.randomForest = model
+    prescriptor.randomForest = model.best_estimator_
 
     # read the structure of the random forest 
-    trainingLeaves = apply_random_forest(model, X_train_scaled)
-    prescriptor.trainingLeaves = trainingLeaves
-    prescriptor.nbSamplesInLeaf = count_samples_in_leaves(model, trainingLeaves)
-    prescriptor.isSampleInTreeLeaf = get_matrix_of_sample_leaf_tree(model, trainingLeaves)
 
+    trainingLeaves = apply_random_forest(prescriptor.randomForest, X_train_scaled)
+
+    prescriptor.trainingLeaves = trainingLeaves
+
+    prescriptor.nbSamplesInLeaf = count_samples_in_leaves(prescriptor.randomForest, trainingLeaves)
+
+    prescriptor.isSampleInTreeLeaf = get_matrix_of_sample_leaf_tree(prescriptor.randomForest, trainingLeaves)
+
+    return prescriptor
 end
 
 function predict_leaf(tree, x)
@@ -98,18 +107,7 @@ end
 
 
 function apply_random_forest(model, X::Matrix{Float64})
-    leaf_indices = Matrix{Int}[]
-
-    for tree in model.estimators_
-        indices = Int[]
-        for x in eachrow(X)
-            push!(indices, predict_leaf(tree, x))
-        end 
-        push!(leaf_indices, indices)
-    end
-
-    return hcat(leaf_indices...)
-    
+    return PyCall.PyObject.(model.apply(X))
 end
 
 function count_samples_in_leaves(rf, trainingLeaves)
@@ -150,7 +148,8 @@ function prescriptor_weights(prescriptor::RfPrescriptor, context::Matrix{Float64
     "Calculate the prescription weights for a given context."
     nbSamples = prescriptor.nbSamples
     context = min_max_transform!(prescriptor.scaler, context) # scale the context
-    leaves = apply(prescriptor.randomForest, context)[1, :]
+    # get the leaves of the trees
+    leaves = apply_random_forest(prescriptor.randomForest, context)
     weights = zeros(Float64, nbSamples)
 
     for i in 1:nbSamples
@@ -171,7 +170,8 @@ function prescriptor_weights(prescriptor::RfPrescriptor, context::Matrix{Float64
     if (abs(sum(weights)) - 1) > 1e-12
         error("Erro ao calcular pesos: soma dos pesos não é 1.")
     end
-
+    println("Pesos calculados: ", weights)
+    println("Shape dos pesos: ", size(weights))
     return weights
 end
 
@@ -199,7 +199,7 @@ function cost_difference_vector(z_alt, z_opt, sim::Simulator)
     ]
 end
 
-function solve_cso_problem(sim::Simulator, x, prescriptor::RfPrescriptor)
+function solve_cso_problem(sim, prescriptor::RfPrescriptor, x::Matrix{Float64})
     """
     Solve Contextual Stochastic Optimization (CSO) problem
     in context x.

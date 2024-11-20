@@ -53,8 +53,8 @@ function sample_shipment_innovations(sim::Simulator)
     return rand(MvNormal(zeros(sim.d_x), sim.uCovar))
 end
 
-function get_shipment_model(sim::Simulator, weights::Vector{Float64})
-    ship = Shipment(sim.Y_train[1, :], sim.d_y, 4, weights, sim.verbose)
+function get_shipment_model(sim, weights::Vector{Float64})
+    ship = Shipment(sim.Y_train, sim.d_y, 4, weights, sim.verbose)
     ship = setup_model(ship)
     return ship
 end

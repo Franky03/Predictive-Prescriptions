@@ -54,7 +54,8 @@ function Shipment(
     if weights === nothing
         weights = fill(1.0 / length(demands), length(demands)) # equal weights
     else
-        @assert length(weights) == length(demands) "the number of weights must be equal to the number of demands"
+        @assert length(weights) == length(demands) "the number of weights must 
+        be equal to the number of demands $(length(weights)) != $(length(demands))"
     end
 
     # create model 

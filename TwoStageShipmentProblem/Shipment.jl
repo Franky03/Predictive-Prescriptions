@@ -5,7 +5,7 @@ using GLPK
 using DelimitedFiles
 using LinearAlgebra
 
-export Shipment
+export Shipment, setup_model, solve, cost_function, risk_functional
 
 mutable struct Shipment 
     demands::Vector{Float64} # demands for each location
@@ -17,10 +17,6 @@ mutable struct Shipment
     distance_matrix::Array{Float64, 2} # distance matrix between warehouses and locations
     model::Model 
     weights::Vector{Float64} # adaptive weights for the objective function
-
-    # functions
-    setup_model::Function
-    solve::Function
 end
 
 function Shipment(
@@ -65,7 +61,7 @@ function Shipment(
     model = Model(GLPK.Optimizer)
     set_optimizer_attribute(model, "msg_lev", verbose ? GLPK.GLP_MSG_ALL : GLPK.GLP_MSG_OFF)
 
-    Shipment(demands, dy, dz, ship_cost, prod_cost, last_minute_cost, distance_matrix, model, weights, setup_model, solve)
+    Shipment(demands, dy, dz, ship_cost, prod_cost, last_minute_cost, distance_matrix, model, weights)
 end
 
 function setup_model(shipment::Shipment)
@@ -135,7 +131,7 @@ function solve(shipment::Shipment)
         end
     end
 
-    return prod_obj, last_minute_obj, ship_obj
+    return (prod_obj, last_minute_obj, ship_obj)
 end
 
 function _array_recourse_decision(shipment::Shipment, spot, ship)

@@ -5,7 +5,10 @@ using Random
 using Distributions
 
 include("Shipment.jl")
-using .ShipModule
+using .ShipModule 
+
+const Shipment = ShipModule.Shipment
+const setup_model = ShipModule.setup_model
 
 export Simulator, get_shipment_model
 
@@ -51,11 +54,8 @@ function sample_shipment_innovations(sim::Simulator)
 end
 
 function get_shipment_model(sim::Simulator, weights::Vector{Float64})
-    ship = ShipModule.Shipment(sim.Y_train[1, :], sim.d_y, 4, weights, sim.verbose)
-    ship = ship.setup_model(ship)
-    prod_obj, last_minute_obj, ship_obj = ship.solve(ship)
-
-    println("Production cost: ", prod_obj)
+    ship = Shipment(sim.Y_train[1, :], sim.d_y, 4, weights, sim.verbose)
+    ship = setup_model(ship)
     return ship
 end
 

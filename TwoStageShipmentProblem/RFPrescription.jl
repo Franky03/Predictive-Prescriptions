@@ -10,9 +10,9 @@ using ScikitLearn.CrossValidation: train_test_split
 using ScikitLearn: fit!
 using ScikitLearn.GridSearch: RandomizedSearchCV
 using Random
-using StatsBase
+using DecisionTree
 
-@sk_import ensemble: RandomForestRegressor, apply
+@sk_import ensemble: RandomForestRegressor
 
 const Simulator = SimModule.Simulator
 const Shipment = ShipModule.Shipment
@@ -77,10 +77,36 @@ function RfPrescriptor(
     trainingLeaves = apply(model, X_train_scaled)
     prescriptor.trainingLeaves = trainingLeaves
     prescriptor.nbSamplesInLeaf = count_samples_in_leaves(model, trainingLeaves)
+    prescriptor.isSampleInTreeLeaf = get_matrix_of_sample_leaf_tree(model, trainingLeaves)
+
+end
+
+function predict_leaf(tree, x)
+    node = tree.root
+    while !node.is_leaf
+        if x[node.feature] <= node.threshold
+            node = node.left
+        else
+            node = node.right
+        end
+    end
+    return node.id
+end
 
 
+function apply_random_forest(model, X::Matrix{Float64})
+    leaf_indices = Matrix{Int}[]
 
+    for tree in model.estimators_
+        indices = Int[]
+        for x in eachrow(X)
+            push!(indices, predict_leaf(tree, x))
+        end 
+        push!(leaf_indices, indices)
+    end
 
+    return hcat(leaf_indices...)
+    
 end
 
 function count_samples_in_leaves(rf, trainingLeaves)

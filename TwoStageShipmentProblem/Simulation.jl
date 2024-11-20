@@ -52,7 +52,10 @@ end
 
 function get_shipment_model(sim::Simulator, weights::Vector{Float64})
     ship = ShipModule.Shipment(sim.Y_train[1, :], sim.d_y, 4, weights, sim.verbose)
-    ship = ShipModule.setup_model(ship)
+    ship = ship.setup_model(ship)
+    prod_obj, last_minute_obj, ship_obj = ship.solve(ship)
+
+    println("Production cost: ", prod_obj)
     return ship
 end
 

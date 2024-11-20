@@ -26,7 +26,7 @@ const solve = ShipModule.solve
 const min_max_fit_transform! = MLUtils.min_max_fit_transform!
 const min_max_transform! = MLUtils.min_max_transform!
 
-export RfPrescriptor
+export RfPrescriptor, solve_cso_problem, solve_saa_problem
 
 mutable struct RfPrescriptor
     randomForest::Any
@@ -44,7 +44,10 @@ end
 
 function RfPrescriptor(
     X_train, Y_train, nbTrees=100, cvarOrder=2, random_state=nothing, isScaled=false
-)
+)   
+    if isnothing(random_state)
+        random_state = Random.GLOBAL_RNG.seed
+    end
     prescriptor = RfPrescriptor(
         nothing, nbTrees, size(X_train, 1), Y_train, nothing, nothing, nothing, nothing, nothing, cvarOrder, 0.0
     )
@@ -74,7 +77,7 @@ function RfPrescriptor(
     prescriptor.randomForest = model
 
     # read the structure of the random forest 
-    trainingLeaves = apply(model, X_train_scaled)
+    trainingLeaves = apply_random_forest(model, X_train_scaled)
     prescriptor.trainingLeaves = trainingLeaves
     prescriptor.nbSamplesInLeaf = count_samples_in_leaves(model, trainingLeaves)
     prescriptor.isSampleInTreeLeaf = get_matrix_of_sample_leaf_tree(model, trainingLeaves)
@@ -196,13 +199,13 @@ function cost_difference_vector(z_alt, z_opt, sim::Simulator)
     ]
 end
 
-function solve_cso_problem(sim::Simulator, x, prescriptor_weights::Function)
+function solve_cso_problem(sim::Simulator, x, prescriptor::RfPrescriptor)
     """
     Solve Contextual Stochastic Optimization (CSO) problem
     in context x.
     """
     # build the weights
-    weights = prescriptor_weights(x)
+    weights = prescriptor_weights(prescriptor, x)
     # get the shipment model
     shipment = get_shipment_model(sim, weights)
     z_star = solve(shipment)

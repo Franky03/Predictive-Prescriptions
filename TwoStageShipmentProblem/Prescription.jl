@@ -6,7 +6,6 @@ include("Simulation.jl")
 
 using LinearAlgebra
 using StatsBase
-using ScikitLearn
 
 const Simulator = SimModule.Simulator
 const get_shipment_model = SimModule.get_shipment_model

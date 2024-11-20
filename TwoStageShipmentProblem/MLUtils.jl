@@ -35,8 +35,8 @@ function min_max_fit_transform!(scaler::MinMaxScaler, X::Matrix{Float64})
     """
     Fit the scaler and transform the input data.
     """
-    fit!(scaler, X)
-    return transform!(scaler, X)
+    min_max_fit!(scaler, X)
+    return min_max_transform!(scaler, X)
 end
 
 function min_max_inverse_transform!(scaler::MinMaxScaler, X_scaled::Matrix{Float64})

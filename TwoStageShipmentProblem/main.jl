@@ -1,5 +1,6 @@
-include("RFPrescription.jl")
-include("Simulation.jl")
+include("src/RFPrescription.jl")
+include("src/Simulation.jl")
+include("src/Shipment.jl")
 
 const Prescriptor = RfPrescModule.RfPrescriptor
 const Simulator = SimModule.Simulator
@@ -27,5 +28,15 @@ function _run_model(
 end
 
 function _start_simulator()
+    args = Dict(ARGS[i] => ARGS[i+1] for i in 1:2:length(ARGS))
+    size = parse(Int, get(args, "--size", "100")) 
+    verbose = parse(Bool, get(args, "--verbose", "false"))
+    sim = Simulator(size, verbose)
+    println("X_train: ", sim.X_train)   
     
 end
+
+
+_start_simulator()
+
+    

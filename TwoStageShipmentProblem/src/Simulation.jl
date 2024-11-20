@@ -54,7 +54,7 @@ function sample_shipment_innovations(sim::Simulator)
 end
 
 function get_shipment_model(sim, weights::Vector{Float64})
-    ship = Shipment(sim.Y_train, sim.d_y, 4, weights, sim.verbose)
+    ship = Shipment(sim.Y_train, sim.d_y, 4, weights, sim.verbose, sim.size)
     ship = setup_model(ship)
     return ship
 end

@@ -8,7 +8,7 @@ using LinearAlgebra
 export Shipment, setup_model, solve, cost_function, risk_functional
 
 mutable struct Shipment 
-    demands::Vector{Float64} # demands for each location
+    demands::Matrix{Float64} # demands for each location
     dy::Int # number of locations
     dz::Int # number of warehouses
     ship_cost::Float64 # cost of shipping (per unit)
@@ -20,11 +20,12 @@ mutable struct Shipment
 end
 
 function Shipment(
-    demands::Vector{Float64}, 
+    demands::Matrix{Float64}, 
     dy::Int,
     dz::Int = 4, 
     weights::Union{Nothing, Vector{Float64}} = nothing,
-    verbose::Bool = false
+    verbose::Bool = false,
+    size::Int = 100
 )
     # parameters
     ship_cost = 10.0
@@ -54,8 +55,7 @@ function Shipment(
     if weights === nothing
         weights = fill(1.0 / length(demands), length(demands)) # equal weights
     else
-        @assert length(weights) == length(demands) "the number of weights must 
-        be equal to the number of demands $(length(weights)) != $(length(demands))"
+        @assert length(weights) ==  size "Weights size is incorrect, expected $(size), got $(length(weights))"
     end
 
     # create model 
@@ -76,18 +76,18 @@ function setup_model(shipment::Shipment)
     # variables
 
     # quantity shipped from warehouse i to location j
-    @variable(model, s[1:dz, 1:dy, 1:length(demands)] >= 0) 
+    @variable(model, s[1:dz, 1:dy, 1:size(demands)[1]] >= 0) 
     # production in the last hour in each warehouse i
-    @variable(model, t[1:dz, 1:length(demands)] >= 0) 
+    @variable(model, t[1:dz, 1:size(demands)[1]] >= 0) 
     # quantity produced in advance in each warehouse i
     @variable(model, z[1:dz] >= 0) 
 
     # constraints
     
-    for sample in 1:length(demands)
+    for sample in 1:size(demands)[1]
         # satisfy demand for each location j
         for j in 1:dy
-            @constraint(model, sum(s[i, j, sample] for i in 1:dz) >= demands[j])
+            @constraint(model, sum(s[i, j, sample] for i in 1:dz) >= demands[sample, j])
         end
 
         # flow conservation: production and spot orders cover shipments
@@ -107,14 +107,14 @@ function setup_model(shipment::Shipment)
             weights[sample] * (
                 spot_cost * sum(t[i, sample] for i in 1:dz) +
                 ship_cost * sum(distance_matrix[i, j] * s[i, j, sample] for i in 1:dz, j in 1:dy)
-            ) for sample in 1:length(demands)
+            ) for sample in 1:size(demands)[1]
         )
     )
 
     shipment
 end
 
-function solve(shipment::Shipment)
+function solve(shipment)
     optimize!(shipment.model)
     
     prod_obj = Dict()
@@ -124,7 +124,7 @@ function solve(shipment::Shipment)
     dz, dy = shipment.dz, shipment.dy
     for i in 1:dz
         prod_obj[i] = value(shipment.model[:z][i])
-        for s in 1:length(shipment.demands)
+        for s in 1:size(shipment.demands)[1]
             last_minute_obj[(i, s)] = value(shipment.model[:t][i, s])
             for j in 1:dy
                 ship_obj[(i, j, s)] = value(shipment.model[:s][i, j, s])
@@ -136,11 +136,11 @@ function solve(shipment::Shipment)
 end
 
 function _array_recourse_decision(shipment::Shipment, spot, ship)
-    spot_array = zeros(Float64, shipment.dz, length(shipment.demands))
-    ship_array = zeros(Float64, shipment.dz, shipment.dy, length(shipment.demands))
+    spot_array = zeros(Float64, shipment.dz, size(shipment.demands)[1])
+    ship_array = zeros(Float64, shipment.dz, shipment.dy, size(shipment.demands)[1])
 
     for i in 1:shipment.dz
-        for s in 1:length(shipment.demands)
+        for s in 1:size(shipment.demands)[1]
             spot_array[i, s] = spot[(i, s)] # spot order at warehouse i for sample s 
             for j in 1:shipment.dy # shipment from warehouse i to location j for sample s
                 ship_array[i, j, s] = ship[(i, j, s)] 
@@ -176,7 +176,7 @@ end
 
 function risk_functional(shipment::Shipment, z, demand, weights)
     # calculate the expected cost
-    index_ = 1:length(demand)
+    index_ = 1:size(demands)[1]
     prod, spot, ship = z
     spot_array, ship_array = _array_recourse_decision(shipment, spot, ship)
 

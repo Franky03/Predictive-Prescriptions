@@ -170,8 +170,7 @@ function prescriptor_weights(prescriptor::RfPrescriptor, context::Matrix{Float64
     if (abs(sum(weights)) - 1) > 1e-12
         error("Erro ao calcular pesos: soma dos pesos não é 1.")
     end
-    println("Pesos calculados: ", weights)
-    println("Shape dos pesos: ", size(weights))
+    
     return weights
 end
 

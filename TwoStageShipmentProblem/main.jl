@@ -25,8 +25,13 @@ function _run_model(
         simulator, prescriptor, x_alt
     )
 
-    println("Optimal cost: ", z_opt)
-    println("Alternative cost: ", z_alt)
+    open("z_opt.txt", "w") do io
+        println(io, z_opt)
+    end
+
+    open("z_alt.txt", "w") do io
+        println(io, z_alt)
+    end
 
 end
 

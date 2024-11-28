@@ -120,11 +120,11 @@ def gen_model(G, layers, bias_nodes, X, Y):
 
     model = mip.Model(sense=mip.MINIMIZE, solver_name=mip.CBC)
 
-    n = len(X)
-    p = len(X[0])
-    q = len(Y[0])
+    n = len(X) # Number of samples
+    p = len(X[0]) # Number of features
+    q = len(Y[0]) # Number of output classes
 
-    z = [model.add_var(var_type=mip.CONTINUOUS, lb=0.0, name=f"z_{k}") for k in range(n)]
+    z = [model.add_var(var_type=mip.CONTINUOUS, lb=0.0, name=f"z_{k}") for k in range(n)] 
     v = [[model.add_var(var_type=mip.CONTINUOUS, lb=0.0, name=f"v_{k}_{d}") for d in range(q)] for k in range(n)]
 
     h = {

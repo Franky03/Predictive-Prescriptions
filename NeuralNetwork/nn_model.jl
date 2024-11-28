@@ -2,11 +2,18 @@ using LightGraphs
 using DataStructures
 const DiGraph = LightGraphs.DiGraph
 
+using JuMP
+using GLPK
+
 # helper functions
 
 function print_graph(G)
     for e in edges(G)
         println("$e")
+    end
+
+    for v in vertices(G)
+        println("$v")
     end
 end
 
@@ -149,13 +156,48 @@ function foward_propagation(G, layers, bias_nodes, x, node_mapping, edge_weights
     return y
 end
 
+function create_model(G, layers, bias_nodes, X, Y)
+    M = 1000.0
+    n = size(X, 1) # number of samples
+    p = size(X, 2) # number of features
+    q = size(Y, 2) # number of classes
+
+    model = Model(GLPK.Optimizer)
+
+    @variable(model, z[1:n] >= 0) # sum of v for each sample 
+    @variable(model, v[1:n, 1:q] >= 0) # diffeence between the output and the target value
+    @variable(model, h[1:n, vertices(G)], lower_bound=-M, upper_bound=M) # output of each node
+    @variable(model, π[1:n, vertices(G)], Bin) 
+    @variable(model, θ[1:n, vertices(G)], lower_bound=-M, upper_bound=M)
+    @variable(model, w[edges(G)], lower_bound=-1.0, upper_bound=1.0)
+
+    # constraints
+    for k in 1:n
+        for d in 1:q # for each class
+            j = node_mapping[layers[end][d]] # output node
+            # constraint : v[k,d] has to be abs
+            @constraint(model, Y[k, d] - h[k, j] <= v[k, d])
+            @constraint(model, h[k, j] - Y[k, d] <= v[k, d])
+        end
+    end
+
+
+    @objective(model, Min, sum(z[k] for k in 1:n) / n) # minimize the sum of z[k]
+
+
+
+end
+
+
 layer_sizes = [3, 4, 2]
 activations = ["relu", "sigmoid", "softmax"]
 params = get_neural_network(layer_sizes, activations)
 
 if params !== nothing
     (G, layers, bias_nodes, node_mapping, edge_weights, node_attributes) = params
-    x = [4.0, 2.0, 3.0]
+    x = [4.0, 2.0, 5.0]
     y = foward_propagation(G, layers, bias_nodes, x, node_mapping, edge_weights, node_attributes)
     println("Output: $y")
+
+    create_model(G, layers, bias_nodes, x, y)
 end

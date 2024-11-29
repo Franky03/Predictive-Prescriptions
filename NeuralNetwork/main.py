@@ -134,7 +134,6 @@ def gen_model(G, layers, bias_nodes, X, Y):
             k: {j: model.add_var(var_type=mip.CONTINUOUS, lb=-M, ub=M, name=f"h_{k}_{j}") for j in G.nodes}
             for k in range(n)
             }
-
     pi = {
             k: {j: model.add_var(var_type=mip.BINARY, name=f"pi_{k}_{j}") for j in G.nodes} 
             for k in range(n)

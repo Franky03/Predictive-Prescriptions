@@ -185,9 +185,14 @@ function create_model(G, layers, bias_nodes, X, Y)
     @variable(model, z[1:n] >= 0) # sum of v for each sample 
     @variable(model, v[1:n, 1:q] >= 0) # diffeence between the output and the target value
     @variable(model, h[1:n, vertices(G)], lower_bound=-M, upper_bound=M) # output of each node
-    @variable(model, π[1:n, vertices(G)], Bin) 
-    @variable(model, θ[1:n, vertices(G)], lower_bound=-M, upper_bound=M)
-    @variable(model, w[edges(G)], lower_bound=-1.0, upper_bound=1.0)
+    @variable(model, π[1:n, vertices(G)], Bin)
+
+    # create edge variables
+    edge_list = [(src(e), dst(e)) for e in edges(G)]
+
+    @variable(model, θ[1:n, edge_list], lower_bound=-M, upper_bound=M)
+
+    @variable(model, w[edge_list], lower_bound=-1.0, upper_bound=1.0)
 
     # constraints
     for k in 1:n
@@ -223,11 +228,16 @@ function create_model(G, layers, bias_nodes, X, Y)
                 j = node_mapping[layer[d]]
                 activation_type = node_attributes[layer[d]][:activation]
                 if activation_type == "heaviside"
-                    #@constraint(model, M * π[k, j] >= sum(θ[k, (i, j)] for i in outneighbors(G, j)) - h[k, j])
+                    inneigh = inneighbors(G, j)  # Nós predecessores de `j`
+                    @constraint(model, M * π[k, j] >= sum(θ[k, (i, j)] for i in inneigh))
+                    @constraint(model, -M * (1 - π[k, j]) <= sum(θ[k, (i, j)] for i in inneigh))
+                    @constraint(model, h[k, j] == π[k, j]) # heaviside function
+
                 end
                 
             end
         end
+    end
             
 
 
@@ -238,8 +248,8 @@ function create_model(G, layers, bias_nodes, X, Y)
 end
 
 
-layer_sizes = [4, 4, 2]
-activations = ["relu", "sigmoid", "softmax"]
+layer_sizes = [3, 4, 2]
+activations = ["heaviside", "sigmoid", "softmax"]
 params = get_neural_network(layer_sizes, activations)
 
 if params !== nothing

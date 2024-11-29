@@ -7,6 +7,8 @@ using GLPK
 
 # helper functions
 
+const EPS = 1e-6
+
 function print_graph(G)
     for e in edges(G)
         println("$e")
@@ -227,24 +229,73 @@ function create_model(G, layers, bias_nodes, X, Y)
             for d in 1:length(layer)
                 j = node_mapping[layer[d]]
                 activation_type = node_attributes[layer[d]][:activation]
+
+                inneigh = inneighbors(G, j)  # Nós predecessores de `j`
+
                 if activation_type == "heaviside"
-                    inneigh = inneighbors(G, j)  # Nós predecessores de `j`
+
                     @constraint(model, M * π[k, j] >= sum(θ[k, (i, j)] for i in inneigh))
                     @constraint(model, -M * (1 - π[k, j]) <= sum(θ[k, (i, j)] for i in inneigh))
-                    @constraint(model, h[k, j] == π[k, j]) # heaviside function
+                    @constraint(model, h[k, j] == π[k, j])
+                    @constraint(model, sum(θ[k, (i, j)] for i in inneigh) >= EPS - M * (1 - π[k, j])) 
+                    @constraint(model, sum(θ[k, (i, j)] for i in inneigh) <= M * π[k, j] - EPS)
 
-                end
+                elseif activation_type == "relu"
+                    
+                    @constraint(model, sum(θ[k, (i, j)] for i in inneigh) <= h[k, j])
+                    @constraint(model, sum(θ[k, (i, j)] for i in inneigh) + M * (1 - π[k, j]) >= h[k, j])
+                    @constraint(model, h[k, j] >= M * π[k, j])
+                    @constraint(model, h[k, j] >= 0)
+                    
+                elseif activation_type == "identity"
+
+                    @constraint(model, sum(θ[k, (i, j)] for i in inneigh) == h[k, j])
                 
+                end
             end
         end
     end
+
+    # bilinear constraint
+
+    for k in 1:n
+        for (i, j) in edge_list
+            # h_U -> activation function upper bound
+            # h_L -> activation function lower bound
+
+            h_U = activation_functions[node_attributes[reverse_mapping(node_mapping)[i]][:activation]](M)
+            h_L = activation_functions[node_attributes[reverse_mapping(node_mapping)[i]][:activation]](-M)
+
+            if i in layers[1]
+                d = findFirst(x -> x == i, layers[1])
+                h_U = X[k, d]
+                h_L = X[k, d]
+            elseif i in bias_nodes
+                h_U = 1.0
+                h_L = 1.0
+            end
+
+            @constraint(model, θ[k, (i, j)] >= -h[k, i] + w[(i, j)] * h_L + h_L)
+            @constraint(model, θ[k, (i, j)] >= h[k, i] + w[(i, j)] * h_U - h_U)
+            @constraint(model, θ[k, (i, j)] <= -h[k, i] + w[(i, j)] * h_U + h_U)
+            @constraint(model, θ[k, (i, j)] <= h[k, i] + w[(i, j)] * h_L - h_L)
+        end
+    end
             
-
-
     @objective(model, Min, sum(z[k] for k in 1:n) / n) # minimize the sum of z[k]
 
+    optimize!(model)
 
-
+    if termination_status(model) == MOI.OPTIMAL
+        w_vec = [value(w[(i, j)]) for (i, j) in edge_list]  
+        for (i,j) in edge_list
+            G[i,j][:weight] = value(w[(i, j)])
+        end
+        return w_vec
+    else
+        println("Model is not optimal")
+        return nothing
+    end
 end
 
 

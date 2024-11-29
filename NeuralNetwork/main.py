@@ -84,7 +84,6 @@ def draw_layered_graph(G, layers, bias_nodes):
     plt.show()
 
 def forward_pass(G, layers, bias_nodes, x):
-
     h_values = {f"L0_{i+1}": x[i] for i in range(len(x))}
 
     next_h_values = {}
@@ -123,6 +122,10 @@ def gen_model(G, layers, bias_nodes, X, Y):
     n = len(X) # Number of samples
     p = len(X[0]) # Number of features
     q = len(Y[0]) # Number of output classes
+
+    print(f"Number of samples: {n}")
+    print(f"Number of features: {p}")
+    print(f"Number of output classes: {q}")
 
     z = [model.add_var(var_type=mip.CONTINUOUS, lb=0.0, name=f"z_{k}") for k in range(n)] 
     v = [[model.add_var(var_type=mip.CONTINUOUS, lb=0.0, name=f"v_{k}_{d}") for d in range(q)] for k in range(n)]
@@ -219,12 +222,12 @@ def gen_model(G, layers, bias_nodes, X, Y):
     status = model.optimize()
     
     if status == mip.OptimizationStatus.OPTIMAL:
-        print(f"Optimal objective value: {model.objective_value}")
+        #print(f"Optimal objective value: {model.objective_value}")
 
         w_vec = []
 
         for (i, j), var in w.items():
-            print(f"w[{i}, {j}] = {var.x}")
+            #print(f"w[{i}, {j}] = {var.x}")
             G[i][j]['weight'] = var.x
 
             w_vec.append(var.x)
@@ -260,7 +263,7 @@ def gen_model(G, layers, bias_nodes, X, Y):
     # exit(0)
 
 # iris dataset test
-import pandas as pd
+""" import pandas as pd
 
 file_path = "iris.csv"
 
@@ -277,7 +280,7 @@ X_min = X.min(axis=0)  # Minimum of each column
 X_max = X.max(axis=0)  # Maximum of each column
 X = (X - X_min) / (X_max - X_min)
 # X = 2 * X - 1
-print(X)
+#print(X)
 
 layer_sizes = [4,3]
 activations = ["identity", "heaviside"]
@@ -290,23 +293,23 @@ Y = Y[random_indices]
 
 G, layers, bias_nodes = construct_layered_graph(layer_sizes, activations)
 
-gen_model(G, layers, bias_nodes, X, Y)
+#gen_model(G, layers, bias_nodes, X, Y)
 
 for k, x in enumerate(X):
-    y = forward_pass(G, layers, bias_nodes, x)
-    print(f"y_{k}: {y}")
+    y = forward_pass(G, layers, bias_nodes, x) """
+    #print(f"y_{k}: {y}")
 
-exit(0)
+#exit(0)
 
 # XOR Test
 
-layer_sizes = [2,2,1]
+layer_sizes = [2,2,2]
 activations = ["identity", "heaviside", "identity"]
 
 G, layers, bias_nodes = construct_layered_graph(layer_sizes, activations)
 
-X = np.array([[0.0, 0.0], [0.0, 1.0], [1.0, 0.0], [1.0, 1.0]])
-Y = np.array([[0.0], [1.0], [1.0], [0.0]])
+X = np.array([[4.0, 2.0, 5.0], [2.0, 1.0, 3.0]])
+Y = np.array([[1.0, 0.0], [0.0, 1.0]])
 
 gen_model(G, layers, bias_nodes, X, Y)
 
@@ -357,7 +360,7 @@ intercept = -w_vec[2] / w_vec[1]
 
 for k, x in enumerate(X):
     y = forward_pass(G, layers, bias_nodes, x)
-    print(f"y_{k}: {y}")
+    #print(f"y_{k}: {y}")
 
 
 # plotting 

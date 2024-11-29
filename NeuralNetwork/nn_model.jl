@@ -299,8 +299,8 @@ function create_model(G, layers, bias_nodes, X, Y)
 end
 
 
-layer_sizes = [3]
-activations = ["relu"]
+layer_sizes = [3, 3]
+activations = ["identity", "relu"]
 # 3 variables, a soma deles é 1, hard sigmoid 
 params = get_neural_network(layer_sizes, activations)
 
@@ -310,6 +310,8 @@ if params !== nothing
     Y = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
 
     edge_weights = create_model(G, layers, bias_nodes, X, Y)
+
+    println("Model Created")
 
     for (k, x) in enumerate(X)   
         y = foward_propagation(G, layers, bias_nodes, x, node_mapping, edge_weights, node_attributes)

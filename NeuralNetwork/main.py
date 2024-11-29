@@ -302,13 +302,13 @@ for k, x in enumerate(X):
 
 # XOR Test
 
-layer_sizes = [3, 4, 4, 3, 2]
-activations = ["identity", "relu", "relu", "relu", "identity"]
+layer_sizes = [3, 3]
+activations = ["identity", "relu"]
 
 G, layers, bias_nodes = construct_layered_graph(layer_sizes, activations)
 
 X = np.array([[4.0, 2.0, 5.0], [2.0, 1.0, 3.0]])
-Y = np.array([[1.0, 0.0], [0.0, 1.0]])
+Y = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
 
 gen_model(G, layers, bias_nodes, X, Y)
 

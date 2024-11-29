@@ -4,6 +4,7 @@ const DiGraph = LightGraphs.DiGraph
 
 using JuMP
 using GLPK
+using Crayons.Box
 
 # helper functions
 
@@ -141,7 +142,7 @@ function foward_propagation(G, layers, bias_nodes, x, node_mapping, edge_weights
             for neighbor in inneighbors(G, node_mapping[node])
                 # getting the label of the neighbor node
                 neighbor_label = reverse_mapping(node_mapping)[neighbor]
-                weight = edge_weights[(neighbor_label, node)]
+                weight = edge_weights[(node_mapping[neighbor_label], node_mapping[node])]
                 weighted_sum += weight * h_values[neighbor_label] # h_values[neighbor_label] is the output of the neighbor node
             end
 
@@ -177,10 +178,6 @@ function create_model(G, layers, bias_nodes, X, Y)
 
     n, p = size(X) # number of samples and features
     q = size(Y, 2) # number of classes
-
-    println("Number of samples: $n")
-    println("Number of features: $p")
-    println("Number of classes: $q")
 
     model = Model(GLPK.Optimizer)
     
@@ -250,7 +247,8 @@ function create_model(G, layers, bias_nodes, X, Y)
                 elseif activation_type == "identity"
 
                     @constraint(model, sum(θ[k, (i, j)] for i in inneigh) == h[k, j])
-                
+                elseif activation_type == "hard_sigmoid"
+
                 end
             end
         end
@@ -282,31 +280,40 @@ function create_model(G, layers, bias_nodes, X, Y)
         end
     end
             
-    @objective(model, Min, sum(z[k] for k in 1:n) / n) # minimize the sum of z[k]
+    @objective(model, Min, sum(z[k] for k in 1:n)) # minimize the sum of z[k]
 
     optimize!(model)
 
     if termination_status(model) == MOI.OPTIMAL
-        w_vec = [value(w[(i, j)]) for (i, j) in edge_list]  
-        for (i,j) in edge_list
-            G[i,j][:weight] = value(w[(i, j)])
+        #println(BOLD,GREEN_FG, "Model is optimal")
+        
+        edge_weights = Dict()
+        for (i, j) in edge_list
+            edge_weights[(i, j)] = value(w[(i, j)])
         end
-        return w_vec
+        return edge_weights
     else
-        println("Model is not optimal")
+        println(BOLD,RED_FG, "Model is not optimal")
         return nothing
     end
 end
 
 
-layer_sizes = [3, 4, 2]
-activations = ["heaviside", "sigmoid", "softmax"]
+layer_sizes = [3]
+activations = ["relu"]
+# 3 variables, a soma deles é 1, hard sigmoid 
 params = get_neural_network(layer_sizes, activations)
 
 if params !== nothing
     (G, layers, bias_nodes, node_mapping, edge_weights, node_attributes) = params
-    X = [[4.0, 2.0, 5.0], [2.0, 1.0, 3.0]]
-    Y = [[1.0, 0.0], [0.0, 1.0]]
+    X = [[4.0, 2.0, 5.0], [2.0, 1.0, 3.0], [3.0, 3.0, 3.0]]
+    Y = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
 
-    create_model(G, layers, bias_nodes, X, Y)
+    edge_weights = create_model(G, layers, bias_nodes, X, Y)
+
+    for (k, x) in enumerate(X)   
+        y = foward_propagation(G, layers, bias_nodes, x, node_mapping, edge_weights, node_attributes)
+        println("Sample $k: $y")
+    end
+
 end

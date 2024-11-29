@@ -302,8 +302,8 @@ for k, x in enumerate(X):
 
 # XOR Test
 
-layer_sizes = [2,2,2]
-activations = ["identity", "heaviside", "identity"]
+layer_sizes = [3, 4, 4, 3, 2]
+activations = ["identity", "relu", "relu", "relu", "identity"]
 
 G, layers, bias_nodes = construct_layered_graph(layer_sizes, activations)
 

@@ -3,7 +3,7 @@ using DataStructures
 const DiGraph = LightGraphs.DiGraph
 
 using JuMP
-using GLPK
+using Gurobi
 using Crayons.Box
 
 using CSV
@@ -184,7 +184,8 @@ function create_model(G, layers, bias_nodes, X, Y)
     n, p = size(X) # number of samples and features
     q = size(Y, 2) # number of classes
 
-    model = Model(GLPK.Optimizer)
+    model = Model(Gurobi.Optimizer)
+    set_optimizer_attribute(model, "OutputFlag", 0)
     
     @variable(model, z[1:n] >= 0) # sum of v for each sample 
     @variable(model, v[1:n, 1:q] >= 0) # diffeence between the output and the target value
@@ -263,8 +264,8 @@ function create_model(G, layers, bias_nodes, X, Y)
 
                     # case 1: x < -2.5 → h[k, j] = 0
                     @constraint(model, sum(θ[k, (i, j)] for i in inneigh) <= -2.5 + M * (1 - s1[k, j]))
-                    @constraint(model, h[k, j] <= M * s1[k, j])
-                    @constraint(model, h[k, j] >= -M * s1[k, j])
+                    @constraint(model, h[k, j] <= M * (1 - s1[k, j]))
+                    @constraint(model, h[k, j] >= -M * (1 - s1[k, j]))
                     
                     # case 2: -2.5 <= x <= 2.5 → h[k, j] = 0.2 * x + 0.5
                     @constraint(model, sum(θ[k, (i, j)] for i in inneigh) >= -2.5 - M * (1 - s2[k, j]))
@@ -325,19 +326,24 @@ function create_model(G, layers, bias_nodes, X, Y)
     end
 end
 
-function one_hot_encode(Y::Vector{String15})
+function one_hot_encode(Y::Vector{String15}, binary_classification::Bool = true)
     classes = unique(Y)  # ["Iris-virginica", "Iris-setosa", "Iris-versicolor"]
-    #class_to_onehot = Dict(c => [i == j ? 1.0 : 0.0 for j in 1:length(classes)] for (i, c) in enumerate(classes))
-    class_to_onehot = Dict(c => (i == 1 ? [1.0] : [0.0]) for (i, c) in enumerate(classes))
+    if !binary_classification
+        class_to_onehot = Dict(c => [i == j ? 1.0 : 0.0 for j in 1:length(classes)] for (i, c) in enumerate(classes))
+    else
+        class_to_onehot = Dict(c => (i == 1 ? [1.0] : [0.0]) for (i, c) in enumerate(classes))
+    end
 
     one_hot_Y = [class_to_onehot[y] for y in Y]
     return one_hot_Y, length(classes)
 end
 
-function read_iris_data()
+function read_iris_data(binary_classification::Bool = true)
     file_path = "iris.csv"
     iris_data = CSV.read(file_path, DataFrame)
-    iris_data = filter(row -> row.Species in ["Iris-setosa", "Iris-versicolor"], iris_data)
+    if binary_classification
+        iris_data = filter(row -> row.Species in ["Iris-setosa", "Iris-versicolor"], iris_data)
+    end
 
     Random.seed!(42)
     shuffle!(iris_data)
@@ -345,7 +351,11 @@ function read_iris_data()
     X = [[row.SepalLengthCm, row.SepalWidthCm, row.PetalLengthCm, row.PetalWidthCm] for row in eachrow(iris_data)]
     Y = [row.Species for row in eachrow(iris_data)]
 
-    Y_onehot, num_classes = one_hot_encode(Y)
+    Y_onehot, num_classes = one_hot_encode(Y, binary_classification)
+
+    if binary_classification
+        num_classes = 1
+    end
 
     return X, Y_onehot, num_classes
 end
@@ -363,14 +373,40 @@ function split_data(X, Y, train_ratio::Float64 = 0.8)
     return X_train, Y_train, X_test, Y_test
 end
 
+function confusion_matrix(y_test, y_preds)
+    tp = sum((y_test .== 1.0) .& (y_preds .== 1.0))
+    tn = sum((y_test .== 0.0) .& (y_preds .== 0.0))
+    fp = sum((y_test .== 0.0) .& (y_preds .== 1.0))
+    fn = sum((y_test .== 1.0) .& (y_preds .== 0.0))
+    return [tp fn; fp tn]  # formato [[TP, FN], [FP, TN]]
+end
+
+function classification_metrics(conf_matrix)
+    tp, fn = conf_matrix[1, 1], conf_matrix[1, 2]
+    fp, tn = conf_matrix[2, 1], conf_matrix[2, 2]
+    
+    accuracy = (tp + tn) / (tp + tn + fp + fn)
+    precision = tp / (tp + fp)  # Evitar divisão por zero
+    recall = tp / (tp + fn)
+    f1_score = 2 * (precision * recall) / (precision + recall)
+    
+    return Dict(
+        "Accuracy" => accuracy,
+        "Precision" => precision,
+        "Recall" => recall,
+        "F1 Score" => f1_score
+    )
+end
 
 X, Y, n_out = read_iris_data()
 X_train, Y_train, X_test, Y_test = split_data(X, Y)
 
 n_in = length(X[1])
 
-layer_sizes = [n_in, 1] # 1 because it is perceptron XD
-activations = ["identity", "relu"]
+layer_sizes = [n_in, n_out] # 1 because it is perceptron XD
+activations = ["identity", "hard_sigmoid"]
+
+println("Layer sizes: $layer_sizes")
 
 started_at = time()
 
@@ -390,11 +426,23 @@ if params !== nothing
     y_preds = []
     for (k, x) in enumerate(X_test)   
         y_pred = foward_propagation(G, layers, bias_nodes, x, node_mapping, edge_weights, node_attributes)
+        y_pred = y_pred[1] > 0.5 ? 1.0 : 0.0
         push!(y_preds, y_pred)
-        println("real: $(Y[k]), predicted: $y")
+        println("real: $(Y_test[k]), predicted: $y_pred")
     end
 
     end_test = time()
     println("Testing time: $(end_test - started_at)")
 
+    y_preds = [y[1] for y in y_preds]
+    y_test = [y[1] for y in Y_test]
+
+    cm = confusion_matrix(y_test, y_preds)
+    println(cm)
+
+    metrics = classification_metrics(cm)
+    println("Metrics:")
+    for (key, value) in metrics
+        println("$key: $value")
+    end
 end

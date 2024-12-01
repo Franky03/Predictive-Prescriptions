@@ -6,6 +6,10 @@ using JuMP
 using GLPK
 using Crayons.Box
 
+using CSV
+using DataFrames
+using Random
+
 # helper functions
 
 const EPS = 1e-6
@@ -24,8 +28,14 @@ function relu(x)
     return max(0, x)
 end
 
-function sigmoid(x)
-    return 1 / (1 + exp(-x))
+function hard_sigmoid(x)
+    if x < -2.5
+        return 0
+    elseif x > 2.5
+        return 1
+    else
+        return 0.2 * x + 0.5
+    end
 end
 
 function heaviside(x)
@@ -44,10 +54,10 @@ end
 
 activation_functions = Dict(
     "relu" => relu,
-    "sigmoid" => sigmoid,
     "softmax" => softmax,
     "identity" => x -> x,
-    "heaviside" => heaviside
+    "heaviside" => heaviside,
+    "hard_sigmoid" => hard_sigmoid
 )
 
 # main functions
@@ -72,8 +82,6 @@ function get_neural_network(layer_sizes, activations)
 
         layer = [Symbol("l$(layer_idx)_$i") for i in 1:size] # create nodes for each layer
 
-        println("Layer $layer_idx: $layer")
-
         push!(layers, layer)
 
         for node in layer
@@ -88,11 +96,10 @@ function get_neural_network(layer_sizes, activations)
         end
 
         # adding bias node for the hidden layers
-        if 1 <= layer_idx < length(layer_sizes)
+        if 1 < layer_idx <= length(layer_sizes)
             bias_node = Symbol("b_$(layer_idx)")
             add_vertex!(G)
             push!(bias_nodes, bias_node)
-            #println("Bias Node: $bias_node, Index: $current_index")
             node_mapping[bias_node] = current_index
             nodes_attributes[bias_node] = Dict(:activation => "identity")
 
@@ -107,7 +114,7 @@ function get_neural_network(layer_sizes, activations)
     end
 
     # connecting nodes in the adjacent layers
-    for (l1, l2) in zip(layers[1:end-1], layers[2:end])
+    for (l1, l2) in zip(layers[1:end], layers[2:end])
         for node1 in l1
             for node2 in l2
                 add_edge!(G, node_mapping[node1], node_mapping[node2])
@@ -115,8 +122,6 @@ function get_neural_network(layer_sizes, activations)
             end
         end
     end
-
-    #print_graph(G)
 
     return (G, layers, bias_nodes, node_mapping, edge_weights, nodes_attributes)
 end
@@ -186,6 +191,11 @@ function create_model(G, layers, bias_nodes, X, Y)
     @variable(model, h[1:n, vertices(G)], lower_bound=-M, upper_bound=M) # output of each node
     @variable(model, π[1:n, vertices(G)], Bin)
 
+    @variable(model, s1[1:n, vertices(G)], Bin)
+    @variable(model, s2[1:n, vertices(G)], Bin)
+    @variable(model, s3[1:n, vertices(G)], Bin)
+    
+
     # create edge variables
     edge_list = [(src(e), dst(e)) for e in edges(G)]
 
@@ -241,14 +251,31 @@ function create_model(G, layers, bias_nodes, X, Y)
                     
                     @constraint(model, sum(θ[k, (i, j)] for i in inneigh) <= h[k, j])
                     @constraint(model, sum(θ[k, (i, j)] for i in inneigh) + M * (1 - π[k, j]) >= h[k, j])
-                    @constraint(model, h[k, j] >= M * π[k, j])
+                    @constraint(model, h[k, j] <= M * π[k, j])
                     @constraint(model, h[k, j] >= 0)
                     
                 elseif activation_type == "identity"
 
                     @constraint(model, sum(θ[k, (i, j)] for i in inneigh) == h[k, j])
                 elseif activation_type == "hard_sigmoid"
+                    # exclusive constraints (s1+s2+s3 = 1)
+                    @constraint(model, s1[k, j] + s2[k, j] + s3[k, j] == 1)
 
+                    # case 1: x < -2.5 → h[k, j] = 0
+                    @constraint(model, sum(θ[k, (i, j)] for i in inneigh) <= -2.5 + M * (1 - s1[k, j]))
+                    @constraint(model, h[k, j] <= M * s1[k, j])
+                    @constraint(model, h[k, j] >= -M * s1[k, j])
+                    
+                    # case 2: -2.5 <= x <= 2.5 → h[k, j] = 0.2 * x + 0.5
+                    @constraint(model, sum(θ[k, (i, j)] for i in inneigh) >= -2.5 - M * (1 - s2[k, j]))
+                    @constraint(model, sum(θ[k, (i, j)] for i in inneigh) <= 2.5 + M * (1 - s2[k, j]))
+                    @constraint(model, h[k, j] >= 0.2 * sum(θ[k, (i, j)] for i in inneigh) + 0.5 - M * (1 - s2[k, j]))
+                    @constraint(model, h[k, j] <= 0.2 * sum(θ[k, (i, j)] for i in inneigh) + 0.5 + M * (1 - s2[k, j]))
+
+                    # case 3: x > 2.5 → h[k, j] = 1
+                    @constraint(model, sum(θ[k, (i, j)] for i in inneigh) >= 2.5 - M * (1 - s3[k, j]))
+                    @constraint(model, h[k, j] >= 1 - M * (1 - s3[k, j]))
+                    @constraint(model, h[k, j] <= 1 + M * (1 - s3[k, j]))
                 end
             end
         end
@@ -263,20 +290,21 @@ function create_model(G, layers, bias_nodes, X, Y)
 
             h_U = activation_functions[node_attributes[reverse_mapping(node_mapping)[i]][:activation]](M)
             h_L = activation_functions[node_attributes[reverse_mapping(node_mapping)[i]][:activation]](-M)
-
-            if i in layers[1]
-                d = findFirst(x -> x == i, layers[1])
+            
+            if reverse_mapping(node_mapping)[i] in layers[1]
+                d = findfirst(x -> x == reverse_mapping(node_mapping)[i], layers[1])
                 h_U = X[k, d]
                 h_L = X[k, d]
-            elseif i in bias_nodes
+            elseif reverse_mapping(node_mapping)[i] in bias_nodes
                 h_U = 1.0
                 h_L = 1.0
             end
 
             @constraint(model, θ[k, (i, j)] >= -h[k, i] + w[(i, j)] * h_L + h_L)
+            @constraint(model, θ[k, (i, j)] <= h[k, i] + w[(i, j)] * h_L - h_L)
             @constraint(model, θ[k, (i, j)] >= h[k, i] + w[(i, j)] * h_U - h_U)
             @constraint(model, θ[k, (i, j)] <= -h[k, i] + w[(i, j)] * h_U + h_U)
-            @constraint(model, θ[k, (i, j)] <= h[k, i] + w[(i, j)] * h_L - h_L)
+            
         end
     end
             
@@ -285,37 +313,88 @@ function create_model(G, layers, bias_nodes, X, Y)
     optimize!(model)
 
     if termination_status(model) == MOI.OPTIMAL
-        #println(BOLD,GREEN_FG, "Model is optimal")
-        
         edge_weights = Dict()
         for (i, j) in edge_list
             edge_weights[(i, j)] = value(w[(i, j)])
         end
         return edge_weights
     else
-        println(BOLD,RED_FG, "Model is not optimal")
-        return nothing
+        println("Model is not optimal :(")
+        # exit program
+        exit(1)
     end
 end
 
+function one_hot_encode(Y::Vector{String15})
+    classes = unique(Y)  # ["Iris-virginica", "Iris-setosa", "Iris-versicolor"]
+    #class_to_onehot = Dict(c => [i == j ? 1.0 : 0.0 for j in 1:length(classes)] for (i, c) in enumerate(classes))
+    class_to_onehot = Dict(c => (i == 1 ? [1.0] : [0.0]) for (i, c) in enumerate(classes))
 
-layer_sizes = [3, 3]
+    one_hot_Y = [class_to_onehot[y] for y in Y]
+    return one_hot_Y, length(classes)
+end
+
+function read_iris_data()
+    file_path = "iris.csv"
+    iris_data = CSV.read(file_path, DataFrame)
+    iris_data = filter(row -> row.Species in ["Iris-setosa", "Iris-versicolor"], iris_data)
+
+    Random.seed!(42)
+    shuffle!(iris_data)
+
+    X = [[row.SepalLengthCm, row.SepalWidthCm, row.PetalLengthCm, row.PetalWidthCm] for row in eachrow(iris_data)]
+    Y = [row.Species for row in eachrow(iris_data)]
+
+    Y_onehot, num_classes = one_hot_encode(Y)
+
+    return X, Y_onehot, num_classes
+end
+
+function split_data(X, Y, train_ratio::Float64 = 0.8)
+    n_samples = length(X)
+    train_size = Int(floor(train_ratio * n_samples))
+
+    X_train = X[1:train_size]
+    Y_train = Y[1:train_size]
+
+    X_test = X[train_size+1:end]
+    Y_test = Y[train_size+1:end]
+
+    return X_train, Y_train, X_test, Y_test
+end
+
+
+X, Y, n_out = read_iris_data()
+X_train, Y_train, X_test, Y_test = split_data(X, Y)
+
+n_in = length(X[1])
+
+layer_sizes = [n_in, 1] # 1 because it is perceptron XD
 activations = ["identity", "relu"]
-# 3 variables, a soma deles é 1, hard sigmoid 
+
+started_at = time()
+
 params = get_neural_network(layer_sizes, activations)
 
 if params !== nothing
     (G, layers, bias_nodes, node_mapping, edge_weights, node_attributes) = params
-    X = [[4.0, 2.0, 5.0], [2.0, 1.0, 3.0], [3.0, 3.0, 3.0]]
-    Y = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+    
+    edge_weights = create_model(G, layers, bias_nodes, X_train, Y_train)
 
-    edge_weights = create_model(G, layers, bias_nodes, X, Y)
+    end_train = time()
 
-    println("Model Created")
+    println("Training time: $(end_train - started_at)")
 
-    for (k, x) in enumerate(X)   
-        y = foward_propagation(G, layers, bias_nodes, x, node_mapping, edge_weights, node_attributes)
-        println("Sample $k: $y")
+    started_at = time()
+
+    y_preds = []
+    for (k, x) in enumerate(X_test)   
+        y_pred = foward_propagation(G, layers, bias_nodes, x, node_mapping, edge_weights, node_attributes)
+        push!(y_preds, y_pred)
+        println("real: $(Y[k]), predicted: $y")
     end
+
+    end_test = time()
+    println("Testing time: $(end_test - started_at)")
 
 end

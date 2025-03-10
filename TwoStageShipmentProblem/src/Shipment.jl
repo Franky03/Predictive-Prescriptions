@@ -1,6 +1,7 @@
 module ShipModule
 
 using JuMP
+import HiGHS
 using GLPK
 using DelimitedFiles
 using LinearAlgebra
@@ -40,7 +41,7 @@ function Shipment(
     """
 
     warehouses = [
-        [0.85, 0], [0, 0.85], [-0.85, 0], [0, -0.85]
+        [0.85, 0], [0, 0.85], [-0.85, 0], [0, -0.85], [0.42, 0.42]
     ]
 
     distance_matrix = zeros(Float64, dz, dy)
@@ -59,8 +60,8 @@ function Shipment(
     end
 
     # create model 
-    model = Model(GLPK.Optimizer)
-    set_optimizer_attribute(model, "msg_lev", verbose ? GLPK.GLP_MSG_ALL : GLPK.GLP_MSG_OFF)
+    model = Model(HiGHS.Optimizer)
+    #set_optimizer_attribute(model, "msg_lev", verbose ? GLPK.GLP_MSG_ALL : GLPK.GLP_MSG_OFF)
 
     Shipment(demands, dy, dz, ship_cost, prod_cost, last_minute_cost, distance_matrix, model, weights)
 end
@@ -103,7 +104,7 @@ function setup_model(shipment::Shipment)
         # first stage costs
         prod_cost * sum(z[i] for i in 1:dz) +
         # second stage costs 
-        sum(
+        sum(    
             weights[sample] * (
                 spot_cost * sum(t[i, sample] for i in 1:dz) +
                 ship_cost * sum(distance_matrix[i, j] * s[i, j, sample] for i in 1:dz, j in 1:dy)

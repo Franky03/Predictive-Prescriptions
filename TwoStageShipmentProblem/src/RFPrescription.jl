@@ -11,7 +11,8 @@ using Random
 using DecisionTree
 using PyCall
 
-@sk_import ensemble: RandomForestRegressor
+ensemble = pyimport("sklearn.ensemble")
+RandomForestRegressor = ensemble.RandomForestRegressor
 
 const RandomizedSearchCV = ScikitLearn.GridSearch.RandomizedSearchCV
 
